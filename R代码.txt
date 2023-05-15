@@ -1,0 +1,78 @@
+rm(list =ls())
+getwd()
+setwd("E:/生信/组学数据/")
+LR <- read.table("celltalk/mouse_lr_pair (3) .txt",sep ="\t",header = T)
+
+#选取GeneID
+LR_geneID <- LR[ , c(1,2,3)]
+
+#-------------------------11/21/2022_心肺RNAseq_LR------------------
+total_rawdata <- read.csv("natueBulk_RNASeq/GSE132040_190214_A00111_0269_AHH3J3DSXX_190214_A00111_0270_BHHMFWDSXX.csv")
+#选取肺/心数据
+library(dplyr)
+#年轻组在前，老年组在后
+rawdata <- total_rawdata %>% select(gene,A20_384Bulk_Plate1_S20.gencode.vM19,K20_384Bulk_Plate1_S260.gencode.vM19,B3_384Bulk_Plate3_S27.gencode.vM19,F4_384Bulk_Plate1_S124.gencode.vM19,
+                                        M6_384Bulk_Plate1_S294.gencode.vM19,K9_384Bulk_Plate1_S249.gencode.vM19,L8_384Bulk_Plate2_S272.gencode.vM19,E2_384Bulk_Plate2_S98.gencode.vM19)
+write.csv(rawdata,file = "natueBulk_RNASeq/分析原始数据/lung_rawdata_27vs3.csv")
+
+#更改列名
+#K6-O1,E6-O2,C10-O3,G12-O4;A20-Y1,K20-Y2,B3-Y3,F4-Y4
+colnames(rawdata) <- c("gene_id","Y1","Y2","Y3","Y4","O1","O2","O3","O4")
+
+#将数据框第一列设置为行名
+rownames(rawdata)<-rawdata[,1]
+rawdata<-rawdata[,-1] 
+
+
+
+#-------------------------------差异表达基因分析---------------------------
+library(DESeq2)
+#读取counts数据和meta数据表
+mycounts_1 <- rawdata
+mymeta <- read.csv("natueBulk_RNASeq/分析原始数据/meta.csv")
+colnames(mycounts_1) ==mymeta$id
+
+dds <- DESeqDataSetFromMatrix(countData = round(mycounts_1),
+                              colData = mymeta,
+                              design =~dex)
+dds <- DESeq(dds)
+res <- results(dds)
+res_1 <- data.frame(res)
+library(dplyr)
+res_1 %>%
+  mutate(group = case_when(
+    log2FoldChange >= 1 & padj <= 0.05 ~ "UP",
+    log2FoldChange <= -1 & padj <= 0.05 ~ "DOWN",
+    TRUE ~"NOT_CHANGE"
+  )) -> res_2
+#查看有多少差异表达基因
+table(res_2$group)
+#输出结果
+#write.csv(res_2,file = "natueBulk_RNASeq/差异表达分析结果/lung_differented.csv",quote = F)
+
+df_gene.result <-read.csv("E:/生信/组学数据/natueBulk_RNASeq/差异表达分析结果/lung_differented",
+                          header = T, stringsAsFactors = F )
+
+
+#-----------------------------筛选配体/受体数据----------------------------------
+#筛选与配体有关的基因
+lung_ligand <- setdiff(df_gene.result$X,LR_geneID$ligand_gene_symbol)
+lung_ligand <- setdiff(df_gene.result$X,lung_ligand)
+#转换成数据框
+lung_ligand <- data.frame(lung_ligand)
+
+#---------把基因表达数据加上去-------
+colnames(lung_ligand)[1] <- "X"
+lung_ligand <- left_join(lung_ligand,df_gene.result,by = "X")
+#重新输出配体、受体文件
+write.csv(lung_ligand,file = "natueBulk_RNASeq/配体受体分析结果/lung_ligand.csv",
+          quote = F)
+
+
+
+#筛选配受体组合
+#lr_pair1 <- left_join(lung_ligand,LR_ensemble_geneID,by = "ligand_ensembl_gene_id")
+#lr_pair2 <- left_join(heart_receptor,lr_pair1,by = "receptor_ensembl_gene_id")
+
+#write.csv(lr_pair2,file = "celltalkLR/lr_result",quote = F)
+#write.table(lr_pair2,"Hr_Ll_lr.csv",row.names=FALSE,col.names=TRUE,sep=",")
